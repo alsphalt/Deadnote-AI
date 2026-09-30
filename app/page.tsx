@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { RotateCcw, Sparkles, Trophy, Users, Dice5, ArrowLeft } from 'lucide-react'
 
 type Game = 'home' | 'ttt' | 'ludo'
@@ -15,6 +15,48 @@ type LudoState = {
 
 const lines = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]]
 const colors = ['violet', 'cyan'] as const
+const difficultyLabels = { easy: 'Easy', normal: 'Normal', hard: 'Hard', expert: 'Expert' } as const
+type Difficulty = keyof typeof difficultyLabels
+
+function getWinner(board: Mark[]) {
+  const line = lines.find(([a, b, c]) => board[a] && board[a] === board[b] && board[a] === board[c])
+  return line ? board[line[0]] : board.every(Boolean) ? 'draw' as const : null
+}
+
+function minimax(board: Mark[], maximizing: boolean): number {
+  const result = getWinner(board)
+  if (result === 'O') return 10
+  if (result === 'X') return -10
+  if (result === 'draw') return 0
+  const scores = board.map((cell, index) => {
+    if (cell) return null
+    const next = [...board]
+    next[index] = maximizing ? 'O' : 'X'
+    return minimax(next, !maximizing)
+  }).filter((score): score is number => score !== null)
+  return maximizing ? Math.max(...scores) : Math.min(...scores)
+}
+
+function chooseAiMove(board: Mark[], difficulty: Difficulty): number {
+  const open = board.flatMap((cell, index) => cell ? [] : [index])
+  if (difficulty === 'easy') return open[Math.floor(Math.random() * open.length)]
+  if (difficulty === 'normal' && Math.random() < 0.45) return open[Math.floor(Math.random() * open.length)]
+  const scored = open.map((index) => {
+    const next = [...board]
+    next[index] = 'O'
+    return { index, score: minimax(next, false) }
+  })
+  const bestScore = Math.max(...scored.map(({ score }) => score))
+  const best = scored.filter(({ score }) => score === bestScore)
+  if (difficulty === 'hard' && Math.random() < 0.25) return open[Math.floor(Math.random() * open.length)]
+  return best[Math.floor(Math.random() * best.length)].index
+}
+
+function applyTttMove(board: Mark[], index: number, mark: Mark) {
+  const next = [...board]
+  next[index] = mark
+  return { board: next, result: getWinner(next) }
+}
 
 function freshLudo(): LudoState {
   return { turn: 0, dice: null, pieces: [[-1, -1, -1, -1], [-1, -1, -1, -1]], winner: null }
@@ -26,6 +68,8 @@ export default function Page() {
   const [tttBoard, setTttBoard] = useState<Mark[]>(Array(9).fill(null))
   const [tttTurn, setTttTurn] = useState<Mark>('X')
   const [tttWinner, setTttWinner] = useState<Mark | 'draw' | null>(null)
+  const [difficulty, setDifficulty] = useState<Difficulty>('normal')
+  const [aiThinking, setAiThinking] = useState(false)
   const [ludo, setLudo] = useState(freshLudo)
   const [message, setMessage] = useState('')
 
@@ -41,20 +85,32 @@ export default function Page() {
   }
 
   function playTtt(index: number) {
-    if (tttBoard[index] || tttWinner) return
-    const next = [...tttBoard]
-    next[index] = tttTurn
-    const hit = lines.find(([a, b, c]) => next[a] && next[a] === next[b] && next[a] === next[c])
-    setTttBoard(next)
-    if (hit) setTttWinner(tttTurn)
-    else if (next.every(Boolean)) setTttWinner('draw')
-    else setTttTurn(tttTurn === 'X' ? 'O' : 'X')
+    if (tttBoard[index] || tttWinner || tttTurn !== 'X' || aiThinking) return
+    const move = applyTttMove(tttBoard, index, 'X')
+    setTttBoard(move.board)
+    if (move.result) setTttWinner(move.result)
+    else setTttTurn('O')
   }
+
+  useEffect(() => {
+    if (tttTurn !== 'O' || tttWinner) return
+    setAiThinking(true)
+    const timer = window.setTimeout(() => {
+      const index = chooseAiMove(tttBoard, difficulty)
+      const move = applyTttMove(tttBoard, index, 'O')
+      setTttBoard(move.board)
+      if (move.result) setTttWinner(move.result)
+      else setTttTurn('X')
+      setAiThinking(false)
+    }, 420)
+    return () => window.clearTimeout(timer)
+  }, [tttBoard, tttTurn, tttWinner, difficulty])
 
   function resetTtt() {
     setTttBoard(Array(9).fill(null))
     setTttTurn('X')
     setTttWinner(null)
+    setAiThinking(false)
   }
 
   function rollDice() {
@@ -87,7 +143,7 @@ export default function Page() {
     return <main className="shell"><header className="topbar"><div className="brand"><span className="brand-mark"><Sparkles /></span><span>DARKNOTE<span className="brand-muted"> / GAMES</span></span></div><span className="live-pill"><span /> local arcade</span></header><section className="hero"><div><p className="eyebrow">GAME NIGHT, REIMAGINED</p><h1>Small games.<br /><em>Big energy.</em></h1><p className="hero-copy">A focused local arcade for quick rounds, sharp moves, and friendly rivalries.</p></div><div className="hero-orbit" aria-hidden="true"><span className="orbit orbit-one" /><span className="orbit orbit-two" /><span className="orbit-dot" /></div></section><section className="name-panel"><label htmlFor="player-name">Your player name</label><input id="player-name" value={name} maxLength={24} onChange={(event) => setName(event.target.value || 'Player one')} /><span>Playing on this device</span></section><section className="game-grid"><GameCard title="Tic-Tac-Toe" kicker="01 / STRATEGY" description="The classic three-in-a-row duel. Outsmart Nova, or hand the crown to a friend." accent="violet" icon="×" onClick={() => chooseGame('ttt')} /><GameCard title="Ludo Sprint" kicker="02 / LUCK + TACTIC" description="Race four pieces around the track. Roll smart, block the path, take the win." accent="cyan" icon="●" onClick={() => chooseGame('ludo')} /></section><footer className="footer-note"><span><Users /> 2 players locally</span><span>Ready when you are</span></footer></main>
   }
 
-  return <main className="shell game-shell"><header className="topbar"><button className="back-button" onClick={() => setGame('home')}><ArrowLeft /> Arcade</button><div className="brand"><span className="brand-mark"><Sparkles /></span><span>DARKNOTE<span className="brand-muted"> / {game === 'ttt' ? 'TIC-TAC-TOE' : 'LUDO SPRINT'}</span></span></div><span className="live-pill"><span /> playing locally</span></header>{game === 'ttt' ? <section className="play-layout"><div className="play-intro"><p className="eyebrow">01 / STRATEGY</p><h1>Make your mark.</h1><p>Three in a row takes the round. You are <strong className="violet-text">X</strong>, Nova is <strong>O</strong>.</p><div className="status-card"><span className="status-label">CURRENT TURN</span><strong>{tttStatus}</strong><span className="status-line" /></div><button className="outline-button" onClick={resetTtt}><RotateCcw /> Reset board</button></div><div className="ttt-wrap"><div className="ttt-board" role="grid" aria-label="Tic-Tac-Toe board">{tttBoard.map((mark, index) => <button key={index} className={`ttt-cell ${mark ? `mark-${mark.toLowerCase()}` : ''}`} onClick={() => playTtt(index)} aria-label={mark ? `Cell ${index + 1}: ${mark}` : `Cell ${index + 1}: empty`}>{mark}</button>)}</div><p className="board-hint">{tttWinner ? 'Round complete — reset to play again.' : 'Tap an empty cell to place your mark.'}</p></div></section> : <LudoBoard state={ludo} name={name} message={message} onRoll={rollDice} onMove={movePiece} onReset={resetLudo} />}</main>
+  return <main className="shell game-shell"><header className="topbar"><button className="back-button" onClick={() => setGame('home')}><ArrowLeft /> Arcade</button><div className="brand"><span className="brand-mark"><Sparkles /></span><span>DARKNOTE<span className="brand-muted"> / {game === 'ttt' ? 'TIC-TAC-TOE' : 'LUDO SPRINT'}</span></span></div><span className="live-pill"><span /> playing locally</span></header>{game === 'ttt' ? <section className="play-layout"><div className="play-intro"><p className="eyebrow">01 / STRATEGY</p><h1>Make your mark.</h1><p>Three in a row takes the round. You are <strong className="violet-text">X</strong>, Nova is <strong>O</strong>.</p><div className="difficulty-panel"><label htmlFor="difficulty">Nova&apos;s level</label><select id="difficulty" value={difficulty} onChange={(event) => { setDifficulty(event.target.value as Difficulty); resetTtt() }}><option value="easy">Easy — relaxed</option><option value="normal">Normal — balanced</option><option value="hard">Hard — sharp</option><option value="expert">Expert — perfect play</option></select><span>Choose before or during a new round.</span></div><div className="status-card"><span className="status-label">CURRENT TURN</span><strong>{aiThinking ? 'Nova is thinking...' : tttStatus}</strong><span className="status-line" /></div><button className="outline-button" onClick={resetTtt}><RotateCcw /> Reset board</button></div><div className="ttt-wrap"><div className="ttt-board" role="grid" aria-label="Tic-Tac-Toe board">{tttBoard.map((mark, index) => <button key={index} className={`ttt-cell ${mark ? `mark-${mark.toLowerCase()}` : ''}`} onClick={() => playTtt(index)} aria-label={mark ? `Cell ${index + 1}: ${mark}` : `Cell ${index + 1}: empty`}>{mark}</button>)}</div><p className="board-hint">{tttWinner ? 'Round complete — reset to play again.' : 'Tap an empty cell to place your mark.'}</p></div></section> : <LudoBoard state={ludo} name={name} message={message} onRoll={rollDice} onMove={movePiece} onReset={resetLudo} />}</main>
 }
 
 function GameCard({ title, kicker, description, accent, icon, onClick }: { title: string; kicker: string; description: string; accent: 'violet' | 'cyan'; icon: string; onClick: () => void }) {
