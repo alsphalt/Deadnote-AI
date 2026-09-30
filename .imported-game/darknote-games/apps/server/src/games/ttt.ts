@@ -1,0 +1,3 @@
+import type { Room } from '@darknote/shared';
+export function createTTT(){return {board:Array(9).fill(null),turn:0,winner:null as number|null,draw:false};}
+export function move(room:Room,index:number){const s=room.state;if(room.status!=='playing'||s.winner!==null||s.draw||index<0||index>8||s.board[index])return false;s.board[index]=s.turn===0?'X':'O';const b=s.board;const lines=[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];const hit=lines.find(l=>l.every(i=>b[i]===b[l[0]]));if(hit){s.winner=s.turn;room.status='finished';}else if(b.every(Boolean)){s.draw=true;room.status='finished';}else s.turn=1-s.turn;return true;}

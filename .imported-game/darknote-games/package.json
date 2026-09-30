@@ -1,0 +1,21 @@
+{
+  "name": "darknote-games",
+  "private": true,
+  "workspaces": [
+    "apps/web",
+    "apps/server",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm:dev:web\" \"npm:dev:server\"",
+    "dev:web": "npm --workspace apps/web run dev",
+    "dev:server": "npm --workspace apps/server run dev",
+    "build": "npm run build --workspaces",
+    "start": "npm --workspace apps/server run start",
+    "db:migrate": "npm --workspace apps/server run migrate"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.2"
+  }
+}
